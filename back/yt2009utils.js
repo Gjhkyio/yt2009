@@ -2,7 +2,7 @@ const fetch = require("node-fetch")
 const constants = require("./yt2009constants.json")
 const yt2009exports = require("./yt2009exports")
 const fs = require("fs")
-const ytdl = require("ytdl-core")
+const yt2009tvsignin = require("./yt2009tvsignin")
 const dominant_color = require("./dominant_color")
 const config = require("./config.json")
 const tokens = config.tokens || ["amogus"]
@@ -253,7 +253,9 @@ module.exports = {
             itemsPath.forEach(container => {
                 // actual results
                 if(container.itemSectionRenderer) {
-                    results = container.itemSectionRenderer.contents
+                    container.itemSectionRenderer.contents.forEach(r => {
+                        results.push(r)
+                    })
                 }
 
                 // continuation token
@@ -416,6 +418,51 @@ module.exports = {
                     "videoCount": result.videoCount,
                     "videos": videoList,
                     a
+                })
+            }
+            // playlist but who hurt you my poor boy..
+            else if(result.lockupViewModel
+            && result.lockupViewModel.contentType == "LOCKUP_CONTENT_TYPE_PLAYLIST") {
+                result = result.lockupViewModel
+                let vCount = 0;
+                try {
+                    let wtf = result.contentImage.collectionThumbnailViewModel
+                    .primaryThumbnail.thumbnailViewModel.overlays[0]
+                    .thumbnailOverlayBadgeViewModel.thumbnailBadges[0]
+                    .thumbnailBadgeViewModel.text;
+                    vCount = this.bareCount(wtf).toString()
+                    if(wtf == "Mix") {
+                        vCount = "50+"
+                    }
+                }
+                catch(error) {}
+                let videoList = []
+                let m = result.metadata.lockupMetadataViewModel
+                try {
+                    let vm = m.metadata.contentMetadataViewModel
+                    let d = " · ";
+                    vm.metadataRows.forEach(n => {
+                        try {
+                            n = n.metadataParts[0].text
+                            let watch = n.commandRuns[0].onTap.innertubeCommand
+                                        .watchEndpoint;
+                            videoList.push({
+                                "type": "playlist-video",
+                                "id": watch.videoId,
+                                "title": n.content.split(d)[0],
+                                "length": n.content.split(d)[1]
+                            })
+                        }
+                        catch(error) {}
+                    })
+                }
+                catch(error) {console.log("lockupviewmodel:",error)}
+                resultsToCallback.push({
+                    "type": "playlist",
+                    "id": result.contentId,
+                    "name": m.title.content,
+                    "videoCount": vCount,
+                    "videos": videoList
                 })
             }
         })
@@ -1024,16 +1071,14 @@ module.exports = {
 
         yt2009exports.updateFileDownload(fname, 1)
 
+        let rHeaders = JSON.parse(JSON.stringify(constants.headers))
+        rHeaders["user-agent"] = "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
+        if(yt2009tvsignin.needed() && yt2009tvsignin.getTvData().accessToken) {
+            let tv = yt2009tvsignin.getTvData()
+            rHeaders.Authorization = `${tv.tokenType} ${tv.accessToken}`
+        }
         fetch("https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8", {
-            "headers": {
-                "accept": "*/*",
-                "accept-language": "en-US,en;q=0.9,pl;q=0.8",
-                "content-type": "application/json",
-                "cookie": "",
-                "x-goog-authuser": "0",
-                "x-origin": "https://www.youtube.com/",
-                "user-agent": "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
-            },
+            "headers": rHeaders,
             "referrer": "https://www.youtube.com/watch?v=" + id,
             "referrerPolicy": "origin-when-cross-origin",
             "body": JSON.stringify({
@@ -1048,7 +1093,9 @@ module.exports = {
                     }
                 }
                 },
-                "videoId": id
+                "videoId": id,
+                "racyCheckOk": true,
+                "contentCheckOk": true
             }),
             "method": "POST",
             "mode": "cors"
@@ -1132,6 +1179,9 @@ module.exports = {
             if(!qualities[quality] && qualities[quality + "60"]) {
                 quality = quality + "60"
             }
+            if(!qualities[quality] && qualities[quality + "50"]) {
+                quality = quality + "50"
+            }
             if(!qualities[quality]) {
                 callback(false)
                 yt2009exports.updateFileDownload(fname, 2)
@@ -1186,7 +1236,7 @@ module.exports = {
     },
 
     "downloadInParts_file": function(url, out, callback) {
-        let androidHeaders = {"headers": {
+        const androidHeaders = {"headers": {
             "accept": "*/*",
             "accept-language": "en-US,en;q=0.9,pl;q=0.8",
             "content-type": "application/json",
@@ -1195,35 +1245,25 @@ module.exports = {
             "x-origin": "https://www.youtube.com/",
             "user-agent": "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
         }}
-        let partSize = 9 * 1000 * 1000 //9MB
-        let fileParts = []
-        let lastSentPart = 0
-        function fetchNextPart() {
-            let partStartB = lastSentPart * partSize
-            partStartB += lastSentPart
-            let newHeaders = JSON.parse(JSON.stringify(androidHeaders))
-            newHeaders.headers.range = "bytes=" + (partStartB) + "-" + (partStartB + partSize)
-            fetch(url, newHeaders).then(r => {r.buffer().then(rr => {
-                if(rr.length < 1) {
-                    onAllDone()
-                    return;
+        const partSize = 9_000_000; //9MB
+        const stream = fs.createWriteStream(out, { flags: 'a' });
+        function fetchNextPart(partNumber) {
+            let partStartB = partNumber * partSize;
+            if(partNumber !== 0) {partStartB += partNumber}
+            const newHeaders = { ...androidHeaders };
+            newHeaders.headers.range = `bytes=${partStartB}-${partStartB + partSize}`;
+            fetch(url, newHeaders).then(r => {
+                if (r.headers.get('Content-Length') === '0') {
+                    stream.end();
+                    return callback();
                 }
-                fileParts[lastSentPart] = rr
-                lastSentPart++
-                fetchNextPart(lastSentPart)
-            })})
-        }
-        fetchNextPart(0)
-    
-        function onAllDone() {
-            let h = Buffer.alloc(0)
-            fileParts.forEach(f => {
-                h = Buffer.concat([h, f])
-            })
-            fs.writeFile(out, h, (e) => {
-                callback()
+                r.body.pipe(stream, { end: false });
+                r.body.on('end', () => {
+                    fetchNextPart(partNumber + 1);
+                });
             })
         }
+        fetchNextPart(0);
     },
 
     "relativeTimeCreate": function(baseString, language) {

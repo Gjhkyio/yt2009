@@ -11,6 +11,8 @@ const constants = require("./yt2009constants.json")
 const yt2009playlists = require("./yt2009playlists")
 const mobileflags = require("./yt2009mobileflags")
 const yt2009_exports = require("./yt2009exports")
+const mobileauths = require("./yt2009mobileauths")
+const yt2009jsongdata = require("./yt2009jsongdata")
 const env = config.env
 const rtsp_server = `rtsp://${config.ip}:${config.port + 2}/`
 const ffmpeg_process_144 = [
@@ -494,6 +496,7 @@ module.exports = {
 
     // apk feeds
     "feeds": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         // mobileflags
         if(req.headers["x-gdata-device"]
         && req.headers["x-gdata-device"].includes("device-id=\"")) {
@@ -608,6 +611,7 @@ module.exports = {
 
     // apk videos
     "videoData": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "single")) return;
         let id = req.originalUrl.split("/videos/")[1]
                                 .split("?")[0]
                                 .split("#")[0]
@@ -639,6 +643,7 @@ module.exports = {
 
     // apk video related
     "apkVideoRelated": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         // apkVideoRelated use exp_related!!
         let id = req.originalUrl.split("/videos/")[1]
                                 .split("/related")[0];
@@ -717,6 +722,7 @@ module.exports = {
 
     // apk video comments
     "apkVideoComments": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res)) return;
         let id = req.originalUrl.split("/videos/")[1]
                                 .split("/comments")[0]
         yt2009html.fetch_video_data(id, (data) => {
@@ -771,6 +777,7 @@ module.exports = {
 
     // apk user info
     "userInfo": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res)) return;
         let id = req.originalUrl.split("/users/")[1]
                                 .split("/")[0]
                                 .split("?")[0];
@@ -783,8 +790,12 @@ module.exports = {
                 id = mobileflags.get_flags(req).login_simulate.split("/")[1]
             }
         }
+        let path = "/@" + id
+        if(id.startsWith("UC") && id.length == 24) {
+            path = "/channel/" + id
+        }
         let flags = mobileflags.get_flags(req).channel
-        channels.main({"path": "/@" + id, 
+        channels.main({"path": path, 
         "headers": {"cookie": ""},
         "query": {"f": 0}}, 
         {"send": function(data) {
@@ -799,7 +810,7 @@ module.exports = {
                 if(data.videoCount) {
                     videoCount = data.videoCount
                 } else {
-                    channels.fill_videocount("/@" + id, (count) => {
+                    channels.fill_videocount(path, (count) => {
                         if(count !== "") {
                             videoCount = count;
                         }
@@ -829,9 +840,14 @@ module.exports = {
 
     // apk videos
     "userVideos": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         let id = req.originalUrl.split("/users/")[1]
                                 .split("/uploads")[0]
-        channels.main({"path": "/@" + id, 
+        let path = "/@" + id
+        if(id.startsWith("UC") && id.length == 24) {
+            path = "/channel/" + id
+        }
+        channels.main({"path": path, 
         "headers": {"cookie": ""},
         "query": {"f": 0}}, 
         {"send": function(data) {
@@ -865,10 +881,15 @@ module.exports = {
 
     // apk user playlists
     "userPlaylists": function(req, res, sendRawData) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         let id = req.originalUrl.split("/users/")[1]
                                 .split("/playlists")[0]
+        let path = "/@" + id
+        if(id.startsWith("UC") && id.length == 24) {
+            path = "/channel/" + id
+        }
         setTimeout(function() {
-            channels.main({"path": "/@" + id, 
+            channels.main({"path": path,
             "headers": {"cookie": ""},
             "query": {"f": 0}}, 
             {"send": function(data) {
@@ -896,10 +917,15 @@ module.exports = {
 
     // apk user favorites
     "userFavorites": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         let id = req.originalUrl.split("/users/")[1]
                                 .split("/playlists")[0]
+        let path = "/@" + id
+        if(id.startsWith("UC") && id.length == 24) {
+            path = "/channel/" + id
+        }
         setTimeout(function() {
-            channels.main({"path": "/@" + id, 
+            channels.main({"path": path, 
             "headers": {"cookie": ""},
             "query": {"f": 0}}, 
             {"send": function(data) {
@@ -955,15 +981,21 @@ module.exports = {
 
     // apk events
     "apkUserEvents": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res)) return;
         if(!req.query.author) {
             res.send("")
             return;
         }
 
         // i do love being too lazy to develop this function properly
+        let path = "/@" + req.query.author
+        if(req.query.author.startsWith("UC")
+        && req.query.author.length == 24) {
+            path = "/channel/" + path
+        }
         require("./yt2009subscriptions").fetch_new_videos({
             "headers": {
-                "url": "/@" + req.query.author
+                "url": path
             },
             "query": {
                 "flags": ""
@@ -992,6 +1024,7 @@ module.exports = {
 
     // apk user playlist (/users/NAME/playlists/PLAYLISTID)
     "userPlaylistStart": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         let user = req.originalUrl.split("/users/")[1]
                                   .split("/playlists")[0]
         let playlistId = req.originalUrl.split("/playlists/")[1]
@@ -1045,6 +1078,7 @@ module.exports = {
     },
 
     "categoryFeeds": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res, "feed")) return;
         let categoryName = req.originalUrl.split("_")[2].split("?")[0]
         let categoryNumber = categories[categoryName]
         let max = req.query["max-results"] || 25
@@ -1085,6 +1119,7 @@ module.exports = {
 
     // post video comments
     "videoCommentPost": function(req, res) {
+        if(!mobileauths.isAuthorized(req, res)) return;
         let id = req.originalUrl.split("/videos/")[1]
                                 .split("/comments")[0]
         // login simulate name

@@ -12,10 +12,12 @@ const yt2009waybackwatch = require("./cache_dir/wayback_watchpage")
 const yt2009templates = require("./yt2009templates");
 const yt2009languages = require("./language_data/language_engine")
 const yt2009exports = require("./yt2009exports")
+const yt2009tvsignin = require("./yt2009tvsignin")
 const constants = require("./yt2009constants.json")
 const config = require("./config.json")
 const userid = require("./cache_dir/userid_cache")
 const crypto = require("crypto")
+const signedInNext = false;
 
 const watchpage_code = fs.readFileSync("../watch.html").toString();
 const watchpage_feather = fs.readFileSync("../watch_feather.html").toString()
@@ -63,20 +65,26 @@ module.exports = {
             api_key = this.get_api_key()
         }
 
+        let rHeaders = JSON.parse(JSON.stringify(constants.headers))
+        if(yt2009tvsignin.needed() && yt2009tvsignin.getTvData().accessToken) {
+            let tv = yt2009tvsignin.getTvData()
+            rHeaders.Authorization = `${tv.tokenType} ${tv.accessToken}`
+        }
+
         let callbacksRequired = 2;
         let callbacksMade = 0;
         let combinedResponse = {}
         fetch(`https://www.youtube.com/youtubei/v1/next?key=${api_key}`, {
-            "headers": constants.headers,
+            "headers": signedInNext ? rHeaders : constants.headers,
             "referrer": `https://www.youtube.com/`,
             "referrerPolicy": "strict-origin-when-cross-origin",
             "body": JSON.stringify({
                 "autonavState": "STATE_OFF",
                 "captionsRequested": false,
-                "contentCheckOk": false,
+                "contentCheckOk": true,
                 "context": innertube_context,
                 "playbackContext": {"vis": 0, "lactMilliseconds": "1"},
-                "racyCheckOk": false,
+                "racyCheckOk": true,
                 "videoId": id
             }),
             "method": "POST",
@@ -92,14 +100,14 @@ module.exports = {
         })})
 
         fetch(`https://www.youtube.com/youtubei/v1/player?key=${api_key}`, {
-            "headers": constants.headers,
+            "headers": rHeaders,
             "referrer": `https://www.youtube.com/`,
             "referrerPolicy": "strict-origin-when-cross-origin",
             "body": JSON.stringify({
-                "contentCheckOk": false,
+                "contentCheckOk": true,
                 "context": innertube_context,
                 "playbackContext": {"vis": 0, "lactMilliseconds": "1"},
-                "racyCheckOk": false,
+                "racyCheckOk": true,
                 "videoId": id
             }),
             "method": "POST",
@@ -133,10 +141,7 @@ module.exports = {
             }
 
             if(!fs.existsSync(`../assets/${id}.mp4`) && !disableDownload) {
-                yt2009exports.updateFileDownload(id, 1)
-                yt2009utils.saveMp4(id, (path => {
-                    yt2009exports.updateFileDownload(id, 2)
-                }))
+                yt2009utils.saveMp4(id, (path => {}))
                 callback(v)
             } else {
                 callback(v)
@@ -285,6 +290,10 @@ module.exports = {
                     }
                     catch(error) {}
                 }
+                if(related[1] && related[1].itemSectionRenderer
+                && related[1].itemSectionRenderer.contents) {
+                    related = related[1].itemSectionRenderer.contents
+                }
                 related.forEach(video => {
                     if(!video.compactVideoRenderer && !video.richItemRenderer) return;
 
@@ -424,13 +433,10 @@ module.exports = {
                     // ytdl
                     if(!waitForOgv) {
                         data.pMp4 = "/get_video?video_id=" + id + "/mp4"
-                        yt2009utils.saveMp4(id, (path => {
-                            yt2009exports.updateFileDownload(id, 2)
-                        }))
+                        yt2009utils.saveMp4(id, (path => {}))
                         on_mp4_save_finish(`../assets/${id}`)
                     } else {
                         yt2009utils.saveMp4(id, (path => {
-                            yt2009exports.updateFileDownload(id, 2)
                             on_mp4_save_finish(path)
                         }))
                     }
@@ -1196,6 +1202,7 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
                 req.headers.cookie.split("alt_swf_path=")[1].split(";")[0]
             )
             if(!swfFilePath) {swfFilePath = "/watch.swf"}
+            swfFilePath = swfFilePath.split(`"`).join(`%22`)
         }
         if(req.headers.cookie.includes("alt_swf_arg")) {
             swfArgPath = decodeURIComponent(
@@ -1204,6 +1211,7 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
             if(!swfArgPath) {
                 swfArgPath = "video_id"
             }
+            swfArgPath = swfArgPath.split(`"`).join(`%22`)
         }
         let flash_url = `${swfFilePath}?${swfArgPath}=${data.id}`
         if((req.headers["cookie"] || "").includes("f_h264")) {
@@ -1214,6 +1222,18 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
         && req.headers.cookie.includes("f_compat=")) {
             flashCompat = req.headers.cookie.split("f_compat=")[1].split(";")[0]
             flash_url += "&rt=" + Date.now()
+        }
+        let flashCustomModules = {
+            "iv": false,
+            "cc": false
+        }
+        if(req.headers.cookie
+        && req.headers.cookie.includes("f_civ=")) {
+            flashCustomModules.iv = req.headers.cookie.split("f_civ=")[1].split(";")[0]
+        }
+        if(req.headers.cookie
+        && req.headers.cookie.includes("f_ccc=")) {
+            flashCustomModules.cc = req.headers.cookie.split("f_ccc=")[1].split(";")[0]
         }
         if(useFlash) {
             code = code.replace(
@@ -1285,7 +1305,7 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
         if(!useFlash) {
             code = code.replace(
                 "mp4_files", 
-                `<source src="${autoHQ || data.pMp4 || (data.mp4 + ".mp4")}" type="video/mp4"></source>
+                `<source src="${autoHQ || "/get_video?video_id=" + data.id + "/mp4"}" type="video/mp4"></source>
                 <source src="${data.mp4}.ogg" type="video/ogg"></source>`
             )
             if(data.pMp4) {
@@ -2019,6 +2039,7 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
                     flash_url += "&vq=" + vq
                 }
                 let enableModules = !flashCompat.includes("modules")
+                let customModulesPath = ""
                 if(new Date().getMonth() == 3
                 && new Date().getDate() == 1
                 && !req.headers.cookie.includes("unflip=1")) {
@@ -2056,8 +2077,15 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
                     flash_url += "&fmt_url_map=" + encodeURIComponent(fmtUrls)
                 }
                 
+                let ccModuleAs2 = encodeURIComponent(
+                    `http://${config.ip}:${config.port}/subtitle-module.swf`
+                )
+                let ivModuleAs2 = encodeURIComponent(
+                    `http://${config.ip}:${config.port}/iv_module.swf`
+                )
                 if(enableModules) {
-                    flash_url += `&cc_module=http%3A%2F%2F${config.ip}%3A${config.port}%2Fsubtitle-module.swf`
+                    flash_url += `&cc_module=${flashCustomModules.cc || ccModuleAs2}`
+                    flash_url += `&iv_module=${flashCustomModules.iv || ivModuleAs2}`
                 }
 
                 // always_captions flash
@@ -2119,6 +2147,10 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
                         + "/alt-swf/modules/" + endscreen_module
                     )
                 }
+
+                // 2005 players: &l param containing video length in seconds
+                // this enables seeking in those
+                flash_url += "&l=" + data.length
                 
                 flash_url += render_endscreen_f()
 
