@@ -813,7 +813,7 @@ module.exports = {
         <media:group>
             <media:content url='http://www.youtube.com/v/${video.id}?f=playlists&amp;app=youtube_gdata' type='application/x-shockwave-flash' medium='video' isDefault='true' expression='full' duration='583' yt:format='5'/>
             <media:credit role='uploader' scheme='urn:youtube' yt:type='partner'>sltrib</media:credit>
-            <media:description type='plain'>${video.description}</media:description>
+            <media:description type='plain'>${video.description || ""}</media:description>
             <media:keywords>salt, lake, tribune, utah, tourist, business</media:keywords>
             <media:player url='http://www.youtube.com/watch?v=rInvb982mYU&amp;feature=youtube_gdata'/>
             <media:thumbnail url='http://i.ytimg.com/vi/${video.id}/default.jpg' height='90' width='120' time='00:00:00.500'/>
@@ -1583,8 +1583,8 @@ xmlns:yt='http://gdata.youtube.com/schemas/2007'>
         <span>“${term}”</span>
     </div>`
     },
-    "latestChip": "8gYuGix6KhImCiQ2NTQ1MjBkZS0wMDAwLTJkOGYtYjkwNS1kNGY1NDdlYWM4OGMYAQ%3D%3D",
-    "popularChip": "8gYuGix6KhImCiQ2NTMyYTQzMi0wMDAwLTI3ODQtOTYzOC0xNGMxNGVmNDA5YjAYAg%3D%3D",
+    "latestChip": "8gYuGix6KhImCiQ2N2VlMmNlOS0wMDAwLTI5NWMtOTBjMy01ODI0MjliZTEzZWMgBA%3D%3D",
+    "popularChip": "8gYuGix6KhImCiQ2N2ViM2Y1NS0wMDAwLTI2ZWEtYjE4NS01ODI0MjliZTA1NjggAg%3D%3D",
     "replyTemplate": function(commentIndex, video, loginSimulateName) {
         return `
     <div id="div_comment_form_id_${commentIndex}">

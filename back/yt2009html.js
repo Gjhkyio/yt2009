@@ -99,20 +99,33 @@ module.exports = {
             }
         })})
 
+        rHeaders["user-agent"] = "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
         fetch(`https://www.youtube.com/youtubei/v1/player?key=${api_key}`, {
             "headers": rHeaders,
             "referrer": `https://www.youtube.com/`,
             "referrerPolicy": "strict-origin-when-cross-origin",
             "body": JSON.stringify({
-                "contentCheckOk": true,
-                "context": innertube_context,
-                "playbackContext": {"vis": 0, "lactMilliseconds": "1"},
+                "context": {
+                    "client": {
+                        "hl": "en",
+                        "clientName": "ANDROID",
+                        "clientVersion": "19.02.39",
+                        "androidSdkVersion": 34,
+                        "mainAppWebInfo": {
+                            "graftUrl": "/watch?v=" + id
+                        }
+                    }
+                },
+                "videoId": id,
                 "racyCheckOk": true,
-                "videoId": id
+                "contentCheckOk": true
             }),
             "method": "POST",
             "mode": "cors"
         }).then(r => {r.json().then(r => {
+            if(r.streamingData) {
+                yt2009exports.extendWrite("players", id, r)
+            }
             for(let i in r) {
                 combinedResponse[i] = r[i]
             }
@@ -256,15 +269,27 @@ module.exports = {
                 catch(error) {
                     data.author_img = "default"
                 }
-                data.upload = videoData.microformat
-                              .playerMicroformatRenderer.uploadDate
+                try {
+                    data.upload = videoData.contents.twoColumnWatchNextResults
+                                  .results.results.contents[0]
+                                  .videoPrimaryInfoRenderer.dateText.simpleText
+                    if(data.upload.includes(" on ")) {
+                        data.upload = data.upload.split(" on ")[1]
+                    }
+                }
+                catch(error) {
+                    data.upload = new Date().toISOString()
+                }
                 data.tags = videoData.videoDetails.keywords || [];
                 data.related = []
-                data.length = parseInt(videoData.microformat
-                                       .playerMicroformatRenderer
-                                       .lengthSeconds)
-                data.category = videoData.microformat
-                                .playerMicroformatRenderer.category
+                data.length = parseInt(videoData.videoDetails.lengthSeconds)
+                try {
+                    data.category = videoData.microformat
+                                    .playerMicroformatRenderer.category
+                }
+                catch(error) {
+                    data.category = "People & Blogs"
+                }
                 
                 if(videoData.playabilityStatus
                 && videoData.playabilityStatus.status == "LOGIN_REQUIRED") {
@@ -1582,7 +1607,8 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
         let related_html = ""
         let related_index = 0;
         data.related.forEach(video => {
-            if(yt2009utils.time_to_seconds(video.length) >= 1800) return;
+            if(yt2009utils.time_to_seconds(video.length) >= 1800
+            && data.length <= 1200) return;
 
             // flagi
             let uploader = video.creatorName
