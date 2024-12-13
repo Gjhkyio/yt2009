@@ -2,7 +2,7 @@ const fetch = require("node-fetch")
 const constants = require("./yt2009constants.json")
 const yt2009exports = require("./yt2009exports")
 const fs = require("fs")
-const yt2009tvsignin = require("./yt2009tvsignin")
+const yt2009signin = require("./yt2009androidsignin")
 const dominant_color = require("./dominant_color")
 const config = require("./config.json")
 const tokens = config.tokens || ["amogus"]
@@ -540,16 +540,24 @@ module.exports = {
     },
 
     
-    "markupDescription": function(description) {
+    "markupDescription": function(description, useRedir) {
         let descriptionMarkedup = ``
         description.split("<br>").forEach(part => {
             part.split(" ").forEach(word => {
                 if(word.startsWith("http://")
                 || word.startsWith("https://")) {
+                    let displayWord = (
+                        word.length > 40
+                        ? word.substring(0, 40) + "..." 
+                        : word
+                    )
+                    if(useRedir && word.includes("//www.youtube.com/")) {
+                        word = word.replace("http://www.youtube.com", "")
+                        word = word.replace("https://www.youtube.com", "")
+                    }
                     descriptionMarkedup += 
                     "<a href=\"" + word + "\" target=\"_blank\">"
-                    + (word.length > 40 ? word.substring(0, 40) + "..." : word)
-                    + "</a>"
+                    + displayWord + "</a>"
                 } else {
                     descriptionMarkedup += `${word} `
                 }
@@ -925,12 +933,13 @@ module.exports = {
                     })
 
                     let title = item.metadata.lockupMetadataViewModel.title;
+                    if(title.content) {title = title.content;}
                     let id = item.contentId;
 
                     parsedPlaylists.push({
                         "name": title,
                         "id": id,
-                        "videos": vcount + " videos",
+                        "videos": vcount,
                         "thumbnail": "//i.ytimg.com/vi/"
                                      + videoId
                                      + "/hqdefault.jpg",
@@ -1283,9 +1292,9 @@ module.exports = {
 
         let rHeaders = JSON.parse(JSON.stringify(constants.headers))
         rHeaders["user-agent"] = "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
-        if(yt2009tvsignin.needed() && yt2009tvsignin.getTvData().accessToken) {
-            let tv = yt2009tvsignin.getTvData()
-            rHeaders.Authorization = `${tv.tokenType} ${tv.accessToken}`
+        if(yt2009signin.needed() && yt2009signin.getData().yAuth) {
+            let d = yt2009signin.getData().yAuth
+            rHeaders.Authorization = `Bearer ${d}`
         }
         fetch("https://www.youtube.com/youtubei/v1/player?key=AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8", {
             "headers": rHeaders,

@@ -12,7 +12,7 @@ const yt2009waybackwatch = require("./cache_dir/wayback_watchpage")
 const yt2009templates = require("./yt2009templates");
 const yt2009languages = require("./language_data/language_engine")
 const yt2009exports = require("./yt2009exports")
-const yt2009tvsignin = require("./yt2009tvsignin")
+const yt2009signin = require("./yt2009androidsignin")
 const constants = require("./yt2009constants.json")
 const config = require("./config.json")
 const userid = require("./cache_dir/userid_cache")
@@ -66,9 +66,9 @@ module.exports = {
         }
 
         let rHeaders = JSON.parse(JSON.stringify(constants.headers))
-        if(yt2009tvsignin.needed() && yt2009tvsignin.getTvData().accessToken) {
-            let tv = yt2009tvsignin.getTvData()
-            rHeaders.Authorization = `${tv.tokenType} ${tv.accessToken}`
+        if(yt2009signin.needed() && yt2009signin.getData().yAuth) {
+            let d = yt2009signin.getData().yAuth
+            rHeaders.Authorization = `Bearer ${d}`
         }
 
         let callbacksRequired = 2;
@@ -99,23 +99,14 @@ module.exports = {
             }
         })})
 
-        rHeaders["user-agent"] = "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
+        //rHeaders["user-agent"] = "com.google.android.youtube/19.02.39 (Linux; U; Android 14) gzip"
         fetch(`https://www.youtube.com/youtubei/v1/player?key=${api_key}`, {
             "headers": rHeaders,
             "referrer": `https://www.youtube.com/`,
             "referrerPolicy": "strict-origin-when-cross-origin",
             "body": JSON.stringify({
-                "context": {
-                    "client": {
-                        "hl": "en",
-                        "clientName": "ANDROID",
-                        "clientVersion": "19.02.39",
-                        "androidSdkVersion": 34,
-                        "mainAppWebInfo": {
-                            "graftUrl": "/watch?v=" + id
-                        }
-                    }
-                },
+                "context": innertube_context,
+                "playbackContext": {"vis": 0, "lactMilliseconds": "1"},
                 "videoId": id,
                 "racyCheckOk": true,
                 "contentCheckOk": true
@@ -123,9 +114,9 @@ module.exports = {
             "method": "POST",
             "mode": "cors"
         }).then(r => {r.json().then(r => {
-            if(r.streamingData) {
+            /*if(r.streamingData) {
                 yt2009exports.extendWrite("players", id, r)
-            }
+            }*/
             for(let i in r) {
                 combinedResponse[i] = r[i]
             }
@@ -269,7 +260,9 @@ module.exports = {
                 catch(error) {
                     data.author_img = "default"
                 }
-                try {
+                data.upload = videoData.microformat.playerMicroformatRenderer
+                              .uploadDate
+                /*try {
                     data.upload = videoData.contents.twoColumnWatchNextResults
                                   .results.results.contents[0]
                                   .videoPrimaryInfoRenderer.dateText.simpleText
@@ -279,7 +272,7 @@ module.exports = {
                 }
                 catch(error) {
                     data.upload = new Date().toISOString()
-                }
+                }*/
                 data.tags = videoData.videoDetails.keywords || [];
                 data.related = []
                 data.length = parseInt(videoData.videoDetails.lengthSeconds)
@@ -582,8 +575,10 @@ module.exports = {
 
         // auto hd
         let autoHQ = false;
-        if(req.headers.cookie
-        && req.headers.cookie.includes("playback_quality=2")) {
+        if((req.headers.cookie
+        && req.headers.cookie.includes("playback_quality=2"))
+        || (req.query.fmt
+        && (req.query.fmt == "18" || req.query.fmt == "22"))) {
             let startQuality = false;
             if(data.qualities.includes("480p")) {
                 autoHQ = "/get_480?video_id=" + data.id
@@ -1359,14 +1354,16 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
         let shortDescription = description.split("\n").slice(0, 3).join("<br>")
         let fullDescription = description.split("\n").join("<br>")
 
+        let useRedir = flags.includes("yt_redir")
+
         // descriptions
         code = code.replace(
             "video_short_description",
-            yt2009utils.markupDescription(shortDescription)
+            yt2009utils.markupDescription(shortDescription, useRedir)
         )
         code = code.replace(
             "video_full_description",
-            yt2009utils.markupDescription(fullDescription)
+            yt2009utils.markupDescription(fullDescription, useRedir)
         )
 
         // hide signin buttons if logged in
@@ -2937,6 +2934,12 @@ https://web.archive.org/web/20091111/http://www.youtube.com/watch?v=${data.id}`
         if(config.env == "dev") {
             console.log("received " + videos.length + " videos from master")
         }
+    },
+
+    "masterWarningRm": function() {
+        featured_videos = featured_videos.filter(
+            s => !s.title.includes("please update your sync")
+        )
     },
 
     "getBanner": function(data, flags, callback) {
